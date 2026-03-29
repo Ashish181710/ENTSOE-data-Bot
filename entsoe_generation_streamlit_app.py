@@ -709,6 +709,14 @@ def prepare_dataframe_for_excel(df: pd.DataFrame) -> pd.DataFrame:
             prepared[column] = prepared[column].dt.strftime("%Y-%m-%d %H:%M:%S%z")
         elif pd.api.types.is_datetime64_any_dtype(prepared[column]):
             prepared[column] = prepared[column].dt.strftime("%Y-%m-%d %H:%M:%S")
+        elif pd.api.types.is_object_dtype(prepared[column]):
+            prepared[column] = prepared[column].map(
+                lambda value: value
+                if value is None
+                or isinstance(value, (str, int, float, bool))
+                or pd.isna(value)
+                else str(value)
+            )
     return prepared
 
 
@@ -1159,7 +1167,7 @@ def render_dataset_tab(
     start: date,
     end: date,
     zip_bytes: bytes,
-    excel_bytes: bytes,
+    excel_bytes: Optional[bytes],
     fast_mode_enabled: bool,
     fast_mode_row_threshold: int,
 ) -> None:
@@ -1192,13 +1200,21 @@ def render_dataset_tab(
             key=f"download_zip_{dataset_label}",
         )
     with excel_col:
-        st.download_button(
-            label="Download all datasets as Excel",
-            data=excel_bytes,
-            file_name=excel_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"download_excel_{dataset_label}",
-        )
+        if excel_bytes is not None:
+            st.download_button(
+                label="Download all datasets as Excel",
+                data=excel_bytes,
+                file_name=excel_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"download_excel_{dataset_label}",
+            )
+        else:
+            st.button(
+                "Excel export unavailable",
+                disabled=True,
+                key=f"download_excel_disabled_{dataset_label}",
+                help="Excel export failed for the current result set, but the other downloads are still available.",
+            )
     with parquet_col:
         st.download_button(
             label="Download dataset as Parquet",
@@ -1459,17 +1475,24 @@ if fetch:
         st.metric("Total rows across datasets", total_rows)
 
     zip_bytes = build_zip_from_results(output_results)
-    excel_bytes = build_excel_from_results(
-        output_results,
-        metadata={
-            "Country": country_name,
-            "Domains": ", ".join(zone_label(domain_code) for domain_code in selected_domain_codes),
-            "Categories": ", ".join(CATEGORY_LABELS[category] for category in selected_category_keys),
-            "Start UTC": str(utc_start),
-            "End UTC (exclusive)": str(utc_end_exclusive),
-            "Granularity": granularity_mode,
-        },
-    )
+    excel_bytes: Optional[bytes] = None
+    try:
+        excel_bytes = build_excel_from_results(
+            output_results,
+            metadata={
+                "Country": country_name,
+                "Domains": ", ".join(zone_label(domain_code) for domain_code in selected_domain_codes),
+                "Categories": ", ".join(CATEGORY_LABELS[category] for category in selected_category_keys),
+                "Start UTC": str(utc_start),
+                "End UTC (exclusive)": str(utc_end_exclusive),
+                "Granularity": granularity_mode,
+            },
+        )
+    except Exception as exc:
+        st.warning(
+            "Excel export could not be prepared for this result set. CSV, ZIP, and Parquet downloads are still available."
+        )
+        st.caption(f"Excel export error: {exc}")
 
     tabs = st.tabs(list(output_results.keys()))
     for tab, key in zip(tabs, output_results.keys()):
