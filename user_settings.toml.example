@@ -1,0 +1,9 @@
+default_country = "Austria"
+default_psr_label = "All production types"
+default_granularity = "60M"
+default_lookback_days = 7
+default_theme = "Light"
+
+default_categories = [
+  "installed_capacity_per_type",
+]

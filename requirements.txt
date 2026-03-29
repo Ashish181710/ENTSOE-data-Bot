@@ -1,0 +1,6 @@
+streamlit
+pandas
+entsoe-py
+lxml
+xlsxwriter
+pyarrow

@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+
+.streamlit/secrets.toml
+user_settings.toml
+
+.DS_Store
+Thumbs.db
