@@ -1225,8 +1225,8 @@ settings = load_app_settings(
     available_granularities=list(GRANULARITY_OPTIONS.keys()),
 )
 
-theme_left, theme_right = st.columns([6, 1.3])
-with theme_right:
+theme_left, theme_right = st.columns([1.3, 6])
+with theme_left:
     theme_mode = st.radio(
         "Theme",
         options=THEME_OPTIONS,
