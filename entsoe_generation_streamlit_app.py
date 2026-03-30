@@ -212,6 +212,20 @@ def flatten_columns(columns: pd.Index) -> List[str]:
         else:
             flattened.append(str(col))
     return flattened
+
+
+def unique_in_order(values: List[str]) -> List[str]:
+    return list(dict.fromkeys(values))
+
+
+def get_default_multiselect_values(options: List[str], selected_value: str) -> List[str]:
+    if selected_value in options:
+        return [selected_value]
+    if options:
+        return [options[0]]
+    return []
+
+
 def make_utc_day_start(value: date) -> pd.Timestamp:
     return pd.Timestamp(value).tz_localize(UTC_TIMEZONE)
 
@@ -1274,10 +1288,11 @@ if not api_key:
 left, right = st.columns([1, 1])
 with left:
     country_names = list(COUNTRY_OPTIONS.keys())
-    country_name = st.selectbox(
+    selected_country_names = st.multiselect(
         "Country / bidding zone",
-        country_names,
-        index=get_selectbox_index(country_names, settings["default_country"]),
+        options=country_names,
+        default=get_default_multiselect_values(country_names, settings["default_country"]),
+        help="Select one or more countries or bidding-zone groups to fetch together.",
     )
 with right:
     psr_labels = list(PSR_TYPE_OPTIONS.keys())
@@ -1286,9 +1301,18 @@ with right:
         psr_labels,
         index=get_selectbox_index(psr_labels, settings["default_psr_label"]),
     )
-
-country_domains = COUNTRY_DOMAIN_CONFIG[country_name]
-zone_codes = country_domains["zones"]
+selected_country_domains = {
+    country_name: COUNTRY_DOMAIN_CONFIG[country_name]
+    for country_name in selected_country_names
+    if country_name in COUNTRY_DOMAIN_CONFIG
+}
+zone_codes = unique_in_order(
+    [
+        zone_code
+        for country_domains in selected_country_domains.values()
+        for zone_code in country_domains["zones"]
+    ]
+)
 zone_labels = [zone_label(zone_code) for zone_code in zone_codes]
 
 zone_left, zone_right = st.columns([1, 1])
@@ -1296,7 +1320,7 @@ with zone_left:
     fetch_all_zones = st.checkbox(
         "All zones",
         value=True,
-        help="Fetch all bidding zones for the selected country when available.",
+        help="Fetch all bidding zones for the selected countries when available.",
     )
 with zone_right:
     include_country_total = st.checkbox(
@@ -1378,6 +1402,10 @@ st.info(
 fetch = st.button("Fetch ENTSO-E data", type="primary")
 
 if fetch:
+    if not selected_country_names:
+        st.error("Select at least one country or bidding-zone group before fetching.")
+        st.stop()
+
     if not isinstance(date_range, tuple) or len(date_range) != 2:
         st.error("Select both a start and end date in the date range picker.")
         st.stop()
@@ -1399,6 +1427,7 @@ if fetch:
     psr_type = PSR_TYPE_OPTIONS[psr_label]
     selected_frequencies = GRANULARITY_OPTIONS[granularity_mode]
     label_to_code = {zone_label(zone_code): zone_code for zone_code in zone_codes}
+    selected_countries_label = ", ".join(selected_country_names)
 
     if fetch_all_zones:
         selected_domain_codes = zone_codes.copy()
@@ -1408,7 +1437,14 @@ if fetch:
         ]
 
     if include_country_total:
-        for total_code in country_domains["total"]:
+        total_codes = unique_in_order(
+            [
+                total_code
+                for country_domains in selected_country_domains.values()
+                for total_code in country_domains["total"]
+            ]
+        )
+        for total_code in total_codes:
             if total_code not in selected_domain_codes:
                 selected_domain_codes.append(total_code)
 
@@ -1480,7 +1516,7 @@ if fetch:
         excel_bytes = build_excel_from_results(
             output_results,
             metadata={
-                "Country": country_name,
+                "Country": selected_countries_label,
                 "Domains": ", ".join(zone_label(domain_code) for domain_code in selected_domain_codes),
                 "Categories": ", ".join(CATEGORY_LABELS[category] for category in selected_category_keys),
                 "Start UTC": str(utc_start),
@@ -1500,7 +1536,7 @@ if fetch:
             render_dataset_tab(
                 key,
                 output_results[key],
-                country_name,
+                selected_countries_label,
                 start,
                 end,
                 zip_bytes,
